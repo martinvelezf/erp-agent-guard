@@ -9,6 +9,7 @@ or a SIEM if you need the latter.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -36,39 +37,47 @@ class AuditLog:
         self._lock = threading.Lock()
         self._prev = GENESIS
         self.memory: list[dict] = []  # used when path is None (tests, dry demos)
-        if self.path and self.path.exists():
-            last = None
-            with self.path.open("rb") as fh:
-                for line in fh:
-                    if line.strip():
-                        last = line
-            if last:
-                self._prev = json.loads(last)["hash"]
+
+    def _entry(self, prev: str, event: str, agent: str, fields: dict) -> tuple[dict, str]:
+        entry = {"ts": round(self._clock(), 3), "event": event, "agent": agent, **fields, "prev": prev}
+        entry["hash"] = _hash(entry)
+        return entry, json.dumps(entry, sort_keys=True, ensure_ascii=False, default=str)
 
     def write(self, event: str, agent: str, **fields: Any) -> dict:
         with self._lock:
-            entry = {
-                "ts": round(self._clock(), 3),
-                "event": event,
-                "agent": agent,
-                **fields,
-                "prev": self._prev,
-            }
-            entry["hash"] = _hash(entry)
-            line = json.dumps(entry, sort_keys=True, ensure_ascii=False, default=str)
-            if self.path:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                # O_APPEND: the OS never overwrites existing bytes.
-                fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-                try:
-                    os.write(fd, (line + "\n").encode())
-                    os.fsync(fd)
-                finally:
-                    os.close(fd)
-            else:
+            if not self.path:
+                entry, _ = self._entry(self._prev, event, agent, fields)
                 self.memory.append(entry)
-            self._prev = entry["hash"]
+                self._prev = entry["hash"]
+                return entry
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            # Several processes share the log (the gateway, the approve CLI):
+            # take an exclusive lock and re-read the chain head every time.
+            fd = os.open(self.path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                entry, line = self._entry(_tail_hash(fd), event, agent, fields)
+                os.write(fd, (line + "\n").encode())  # O_APPEND: never overwrites
+                os.fsync(fd)
+            finally:
+                os.close(fd)  # releases the lock
             return entry
+
+
+def _tail_hash(fd: int) -> str:
+    """Hash of the last non-empty line of the file, or GENESIS."""
+    size = os.lseek(fd, 0, os.SEEK_END)
+    if size == 0:
+        return GENESIS
+    block, buf, pos = 4096, b"", size
+    while pos > 0:
+        step = min(block, pos)
+        pos -= step
+        buf = os.pread(fd, step, pos) + buf
+        lines = [l for l in buf.split(b"\n") if l.strip()]
+        if len(lines) >= 2 or (lines and pos == 0):
+            return json.loads(lines[-1])["hash"]
+    return GENESIS
 
 
 def verify_audit(path: str | Path) -> tuple[bool, int, str]:

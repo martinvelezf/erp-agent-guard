@@ -87,3 +87,15 @@ def test_token_expiry_cannot_be_extended():
     forged = f"{pid}.{int(exp) + 3600}.{mac}"
     with pytest.raises(ApprovalError):
         verify_token(SECRET, forged, "p_1", "d" * 64, now=1100)
+
+
+def test_two_writers_share_one_chain(tmp_path):
+    # The gateway and the approve CLI are separate processes writing one log.
+    path = tmp_path / "audit.jsonl"
+    gw, cli = AuditLog(path), AuditLog(path)
+    gw.write("propose", "a")
+    cli.write("approve", "a")
+    gw.write("commit", "a", pad="x" * 5000)  # longer than one tail-read block
+    cli.write("read", "a")
+    ok, n, _ = verify_audit(path)
+    assert ok and n == 4
