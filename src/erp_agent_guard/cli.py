@@ -13,7 +13,7 @@ from .approval import get_secret, issue_token
 from .audit import AuditLog, verify_audit
 from .errors import GuardError
 from .policy import load_policy
-from .proposals import ProposalStore
+from .proposals import ProposalStore, proposal_digest, render_changes
 
 
 def _policy(path: str):
@@ -63,7 +63,7 @@ def _show(p: dict) -> None:
     print(f"proposal {p['id']}  agent={p['agent']}  {p['op']} {p['model']}  status={p['status']}")
     print(f"created {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(p['created']))}, "
           f"expires {time.strftime('%H:%M:%S', time.localtime(p['expires']))}")
-    for d in p["diff"]:
+    for d in render_changes(p):
         print(f"  record {d['id'] if d['id'] is not None else '(new)'}:")
         for f, ch in d["changes"].items():
             print(f"    {f}: {json.dumps(ch['from'], ensure_ascii=False)} -> {json.dumps(ch['to'], ensure_ascii=False)}")
@@ -90,6 +90,8 @@ def cmd_approve(args) -> int:
         sys.exit(f"proposal is {p['status']}, not pending")
     if time.time() > p["expires"]:
         sys.exit("proposal expired")
+    if proposal_digest(p) != p["digest"]:
+        sys.exit("proposal content does not match its digest (file was edited); not approving")
     _show(p)
     if not args.yes:
         if not sys.stdin.isatty():

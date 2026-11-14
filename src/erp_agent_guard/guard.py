@@ -8,8 +8,6 @@ filtered and masked -> audit. Refusals are audited too.
 from __future__ import annotations
 
 import functools
-import hashlib
-import json
 import os
 import secrets
 import time
@@ -21,7 +19,7 @@ from .audit import AuditLog
 from .errors import ApprovalError, ConflictError, GuardError, PolicyError
 from .masking import mask_record
 from .policy import Policy
-from .proposals import ProposalStore
+from .proposals import ProposalStore, proposal_digest
 from .quota import QuotaTracker
 
 DOMAIN_OPERATORS = {
@@ -30,10 +28,6 @@ DOMAIN_OPERATORS = {
 }
 LOGIC_OPERATORS = {"&", "|", "!"}
 SCALARS = (str, int, float, bool, type(None))
-
-
-def _canonical(obj: Any) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _audited(tool: str):
@@ -187,7 +181,7 @@ class Guard:
     def _new_proposal(self, agent: str, model: str, op: str, ids: list[int], values: dict,
                       before: dict, diff: list[dict]) -> dict:
         body = {"agent": agent, "model": model, "op": op, "ids": ids, "values": values, "before": before}
-        digest = hashlib.sha256(_canonical(body).encode()).hexdigest()
+        digest = proposal_digest(body)
         now = self.clock()
         proposal = {
             "id": "p_" + secrets.token_hex(8),
@@ -252,6 +246,9 @@ class Guard:
             raise ApprovalError("unknown proposal")
         if p["status"] != "pending":
             raise ApprovalError(f"proposal already {p['status']}")
+        if proposal_digest(p) != p["digest"]:
+            # The stored proposal was edited after the dry-run.
+            raise ApprovalError("proposal content does not match its digest")
         if self.clock() > p["expires"]:
             self.store.update(proposal_id, status="expired")
             raise ApprovalError("proposal expired; create a new dry-run")

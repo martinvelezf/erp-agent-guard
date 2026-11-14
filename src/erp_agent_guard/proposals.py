@@ -6,11 +6,33 @@ Stored as one JSON file so the human approving from another terminal
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
 import threading
 from pathlib import Path
+
+DIGEST_FIELDS = ("agent", "model", "op", "ids", "values", "before")
+
+
+def proposal_digest(p: dict) -> str:
+    """sha256 over exactly what will be committed and what it replaces."""
+    body = {k: p[k] for k in DIGEST_FIELDS}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+def render_changes(p: dict) -> list[dict]:
+    """Rebuild the diff from values/before (never trust a stored diff)."""
+    if p["op"] == "create":
+        return [{"id": None, "changes": {f: {"from": None, "to": v} for f, v in sorted(p["values"].items())}}]
+    out = []
+    for i in p["ids"]:
+        before = p["before"][str(i)]
+        ch = {f: {"from": before.get(f), "to": v} for f, v in sorted(p["values"].items()) if before.get(f) != v}
+        if ch:
+            out.append({"id": i, "changes": ch})
+    return out
 
 
 class ProposalStore:

@@ -228,3 +228,11 @@ def test_everything_is_audited(guard, policy_path):
     assert events[1]["code"] == "policy_denied"
     assert events[0]["returned"] == 2 and "records" not in events[0]  # no data copied into the log
     assert verify_audit(path)[0]
+
+
+def test_tampered_proposal_file_rejected(guard):
+    p = guard.propose_write("sales-ops", "res.partner", [1], {"comment": "VIP"})
+    tok = token_for(guard, p)
+    guard.store.update(p["proposal_id"], values={"comment": "something else"})
+    with pytest.raises(ApprovalError, match="digest"):
+        guard.commit("sales-ops", p["proposal_id"], tok)
