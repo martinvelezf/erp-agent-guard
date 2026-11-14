@@ -236,3 +236,30 @@ def test_tampered_proposal_file_rejected(guard):
     guard.store.update(p["proposal_id"], values={"comment": "something else"})
     with pytest.raises(ApprovalError, match="digest"):
         guard.commit("sales-ops", p["proposal_id"], tok)
+
+
+def test_limit_must_be_integer(guard):
+    # Odoo reads limit=0 as "no limit": a fractional limit must not round down to 0.
+    for bad in (0.5, "5", True):
+        with pytest.raises(PolicyError, match="limit"):
+            guard.search_read("support-bot", "res.partner", limit=bad)
+    with pytest.raises(PolicyError, match="offset"):
+        guard.search_read("support-bot", "res.partner", offset=1.5)
+
+
+def test_commit_refuses_deleted_record(guard, fake):
+    p = guard.propose_write("sales-ops", "res.partner", [1], {"comment": "VIP"})
+    del fake.data["res.partner"][1]
+    with pytest.raises(ConflictError, match="no longer exists"):
+        guard.commit("sales-ops", p["proposal_id"], token_for(guard, p))
+
+
+def test_hash_mask_requires_salt(guard, monkeypatch):
+    from erp_agent_guard.guard import Guard
+    from erp_agent_guard.policy import load_policy_dict
+    pol = load_policy_dict({"agents": {"a": {"models": {"res.partner": {"read": ["vat"], "mask": {"vat": "hash"}}}}}})
+    monkeypatch.delenv("EAG_MASK_SALT", raising=False)
+    with pytest.raises(PolicyError, match="salt"):
+        Guard(pol, guard.adapter)
+    monkeypatch.setenv("EAG_MASK_SALT", "x" * 16)
+    Guard(pol, guard.adapter)

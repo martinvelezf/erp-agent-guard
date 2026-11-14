@@ -8,9 +8,9 @@ The agent gets a small set of MCP tools. Every call goes through a YAML policy b
 - **Two-step writes.** `erp_propose_write` / `erp_propose_create` are dry-runs: they write nothing and return a field-by-field diff. `erp_commit` applies the change.
 - **Human approval token.** The token is an HMAC over the exact diff. A person creates it with `erp-agent-guard approve <id>` after seeing the diff. The agent never holds the secret, and a token for one diff cannot commit another.
 - **Stale-write check.** At commit, the gateway reads the records again and refuses if they changed since the dry-run.
-- **PII masking.** Strategies are `email`, `last4`, `initials`, `hash` (salted) and `redact`. A masked field cannot be filtered or sorted on, so the agent cannot rebuild it with a search oracle such as `vat =like '17%'`.
-- **Quotas.** Each agent has a calls-per-minute limit and a record-writes-per-day limit.
-- **Hash-chained audit log.** The log is append-only JSONL. It records reads, denials, proposals, approvals and commits. `erp-agent-guard verify-audit` detects edited, deleted or reordered lines.
+- **PII masking.** Strategies are `email`, `last4`, `initials`, `hash` (salted; a policy that uses it will not start without `EAG_MASK_SALT`) and `redact`. A masked field cannot be filtered or sorted on, so the agent cannot rebuild it with a search oracle such as `vat =like '17%'`.
+- **Quotas.** Each agent has a calls-per-minute limit and a record-writes-per-day limit. The counters live in the gateway process, so a restart resets them (shared state is on the roadmap).
+- **Hash-chained audit log.** The log is append-only JSONL. It records reads, denials, proposals, approvals and commits. `erp-agent-guard verify-audit` detects edited, deleted or reordered lines. Cutting lines off the end is only caught if you keep the chain head it prints somewhere else.
 - **Built-in deny lists.** Some models and fields are always denied, whatever the YAML says. Models: `ir.config_parameter`, `ir.cron`, `ir.rule`, `res.users.apikeys`, `ir.module.module` and more. Fields: `password`, `api_key`, `totp_secret` and more.
 
 The first adapter is **Odoo JSON-RPC** (`/jsonrpc`, Odoo 14 to 19). The guard only talks to an `ERPAdapter` interface (`search_read`, `read`, `write`, `create`), so NetSuite or another ERP can be added later (see [ROADMAP.md](ROADMAP.md)).
@@ -146,7 +146,7 @@ Audit lines look like this (one JSON object per line, chained by `prev` and `has
 
 ```bash
 pip install -e ".[dev]"
-pytest -q        # 76 tests, about 4 s
+pytest -q        # 80 tests, about 5 s
 ```
 
 The tests run against `erp_agent_guard.fake_odoo`, an in-memory imitation of Odoo's `/jsonrpc` endpoint with synthetic data. No real Odoo or credentials are needed. They cover:
@@ -198,7 +198,7 @@ There are many Odoo MCP servers. Most expose the full ORM (`execute_kw`) to the 
 - It treats domains and ordering as a **data-exfiltration channel**: no filtering or sorting on hidden or masked fields, and no dotted paths.
 - The audit log is hash-chained, and a verifier command is included.
 - The agent identity is fixed by the process. It is not something the model can say.
-- It is small enough to audit: about 1,600 lines, standard library plus PyYAML.
+- It is small enough to audit: about 1,700 lines, standard library plus PyYAML.
 
 ## Resumen en español
 

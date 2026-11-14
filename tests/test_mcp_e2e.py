@@ -155,3 +155,15 @@ def test_serve_loop_handles_garbage(guard):
     s.serve(io.StringIO('not json\n\n{"jsonrpc":"2.0","id":1,"method":"ping"}\n'), out)
     lines = [json.loads(l) for l in out.getvalue().splitlines()]
     assert lines[0]["error"]["code"] == -32700 and lines[1]["result"] == {}
+
+
+def test_batch_with_bad_entry_does_not_kill_server(guard):
+    import io
+    s = MCPServer(guard, "support-bot")
+    out = io.StringIO()
+    batch = [{"jsonrpc": "2.0", "id": 1, "method": 5},
+             {"jsonrpc": "2.0", "id": 2, "method": "ping"}]
+    s.serve(io.StringIO(json.dumps(batch) + '\n{"jsonrpc":"2.0","id":3,"method":"ping"}\n'), out)
+    lines = [json.loads(l) for l in out.getvalue().splitlines()]
+    assert lines[0][0]["error"]["code"] == -32603 and lines[0][1]["result"] == {}
+    assert lines[1]["id"] == 3

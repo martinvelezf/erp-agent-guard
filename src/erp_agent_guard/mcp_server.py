@@ -161,6 +161,13 @@ class MCPServer:
             return None if is_notification else _error(mid, -32601, f"Method not found: {method}")
         return None if is_notification else {"jsonrpc": "2.0", "id": mid, "result": result}
 
+    def _safe_handle(self, msg: Any) -> dict | None:
+        try:
+            return self.handle(msg)
+        except Exception as exc:  # never crash the pipe; never leak internals
+            return _error(msg.get("id") if isinstance(msg, dict) else None, -32603,
+                          f"Internal error: {type(exc).__name__}")
+
     def serve(self, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:
         for line in stdin:
             line = line.strip()
@@ -172,14 +179,10 @@ class MCPServer:
                 resp = _error(None, -32700, "Parse error")
             else:
                 if isinstance(msg, list):  # JSON-RPC batch (older protocol revisions)
-                    resps = [r for r in (self.handle(m) for m in msg) if r is not None]
+                    resps = [r for r in (self._safe_handle(m) for m in msg) if r is not None]
                     resp = resps or None
                 else:
-                    try:
-                        resp = self.handle(msg)
-                    except Exception as exc:  # never crash the pipe; never leak internals
-                        resp = _error(msg.get("id") if isinstance(msg, dict) else None, -32603,
-                                      f"Internal error: {type(exc).__name__}")
+                    resp = self._safe_handle(msg)
             if resp is not None:
                 stdout.write(json.dumps(resp, ensure_ascii=False, default=str) + "\n")
                 stdout.flush()

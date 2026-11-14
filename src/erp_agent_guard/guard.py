@@ -60,6 +60,11 @@ class Guard:
         self.store = store or ProposalStore(policy.proposals_path)
         self.clock = clock
         self._salt = os.environ.get(policy.mask_salt_env, "")
+        uses_hash = any(s == "hash" for a in policy.agents.values()
+                        for m in a.models.values() for s in m.mask.values())
+        if uses_hash and len(self._salt) < 16:
+            # An unsalted sha256 of a phone number or tax id is reversible by brute force.
+            raise PolicyError(f"mask strategy 'hash' needs a secret salt: set ${policy.mask_salt_env} (>= 16 chars)")
 
     # ---- introspection -------------------------------------------------
     @_audited("describe")
@@ -146,10 +151,16 @@ class Guard:
         else:
             fields = list(readable)
         cap = self.policy.max_records(agent, model)
+        # Odoo treats limit=0 as "no limit", so only real positive ints get through;
+        # e.g. limit=0.5 must not become int(0.5) == 0 and bypass the cap.
+        if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool)):
+            raise PolicyError("limit must be an integer")
         if limit is None or limit <= 0:
             limit = cap
-        limit = min(int(limit), cap)
-        if not isinstance(offset, int) or offset < 0:
+        limit = min(limit, cap)
+        if offset is None:
+            offset = 0
+        if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             raise PolicyError("offset must be a non-negative integer")
         dom = self._check_domain(agent, model, domain)
         order = self._check_order(agent, model, order)
@@ -271,7 +282,11 @@ class Guard:
             fields = sorted(p["values"])
             now_rows = {r["id"]: r for r in self.adapter.read(p["model"], p["ids"], fields)}
             for i in p["ids"]:
-                cur = {f: now_rows.get(i, {}).get(f) for f in fields}
+                if i not in now_rows:
+                    # Deleted (or no longer visible) since the dry-run.
+                    self.store.update(proposal_id, status="stale")
+                    raise ConflictError(f"record {i} no longer exists or is not visible; create a new proposal")
+                cur = {f: now_rows[i].get(f) for f in fields}
                 if cur != p["before"][str(i)]:
                     self.store.update(proposal_id, status="stale")
                     raise ConflictError(f"record {i} changed since the dry-run; create a new proposal")
