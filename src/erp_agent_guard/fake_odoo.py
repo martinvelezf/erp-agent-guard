@@ -190,7 +190,7 @@ class FakeOdoo:
                 self.wfile.write(raw)
 
         self._server = ThreadingHTTPServer((host, port), Handler)
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         self._thread.start()
         h, p = self._server.server_address[:2]
         return f"http://{h}:{p}"
