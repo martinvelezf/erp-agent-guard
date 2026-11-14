@@ -198,7 +198,7 @@ There are many Odoo MCP servers. Most expose the full ORM (`execute_kw`) to the 
 - It treats domains and ordering as a **data-exfiltration channel**: no filtering or sorting on hidden or masked fields, and no dotted paths.
 - The audit log is hash-chained, and a verifier command is included.
 - The agent identity is fixed by the process. It is not something the model can say.
-- It is small enough to audit: about 1,000 lines, standard library plus PyYAML.
+- It is small enough to audit: about 1,600 lines, standard library plus PyYAML.
 
 ## Resumen en español
 
