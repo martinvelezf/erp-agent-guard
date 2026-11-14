@@ -1,0 +1,41 @@
+# erp-agent-guard example policy (synthetic). Everything not listed is denied.
+version: 1
+
+defaults:
+  mode: read-only          # agents cannot write unless switched to read-write
+  max_records: 50
+  quota: {calls_per_minute: 30, writes_per_day: 20}
+
+deny:                      # added to the built-in deny lists
+  models: ["res.users", "hr.*", "account.payment*"]
+  fields: ["*_token", "bank_ids"]
+
+agents:
+  support-bot:             # read-only helpdesk assistant
+    models:
+      res.partner:
+        read: [name, email, phone, country_code, customer_rank]
+        mask: {email: email, phone: last4}
+      sale.order:
+        read: [name, partner_id, amount_total, state]
+
+  sales-ops:               # may update contact data, after a human approves
+    mode: read-write
+    quota: {calls_per_minute: 20, writes_per_day: 10}
+    models:
+      res.partner:
+        read: [name, email, phone, country_code, customer_rank, credit_limit, comment, vat]
+        write: [phone, comment]
+        create: [name, email, phone, country_code]
+        mask: {vat: last4}
+      sale.order:
+        mode: read-only    # a model can be stricter than its agent
+        read: [name, partner_id, amount_total, state]
+
+approval:
+  required: true
+  secret_env: EAG_APPROVAL_SECRET   # shared by the gateway and the approver, never the agent
+  ttl_seconds: 900
+
+audit: {path: audit.jsonl}
+proposals: {path: proposals.json}
