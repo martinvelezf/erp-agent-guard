@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "erp-agent-guard"
+version = "0.1.0"
+description = "Policy gateway between AI agents (MCP clients) and an ERP: allowlists, read-only default, dry-run diffs with approval tokens, PII masking, quotas and a hash-chained audit log."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+keywords = ["mcp", "odoo", "erp", "ai-agents", "security", "policy", "audit"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Intended Audience :: Developers",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+erp-agent-guard = "erp_agent_guard.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
